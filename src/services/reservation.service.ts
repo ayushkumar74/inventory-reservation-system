@@ -6,19 +6,93 @@ const RESERVATION_EXPIRY_MINUTES = parseInt(
 )
 
 export class ReservationService {
+  /**
+   * Cleans up ALL expired PENDING reservations globally.
+   * Decrements reservedStock and sets status to RELEASED.
+   */
+  static async cleanupAllExpiredReservations() {
+    const now = new Date()
+
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const expiredReservations = await tx.reservation.findMany({
+          where: {
+            status: 'PENDING',
+            expiresAt: {
+              lt: now,
+            },
+          },
+        })
+
+        if (expiredReservations.length === 0) return 0
+
+        console.log(`[Cleanup] Found ${expiredReservations.length} expired reservations.`)
+
+        for (const expired of expiredReservations) {
+          // Decrement reserved stock, ensuring it doesn't go below 0
+          // We use a manual check or a conditional update if needed, but here we'll just update
+          // based on the assumption that increments were matched.
+          // To be safer, we can use a raw query or check current stock.
+          
+          const inventory = await tx.inventory.findUnique({
+            where: {
+              productId_warehouseId: {
+                productId: expired.productId,
+                warehouseId: expired.warehouseId,
+              }
+            }
+          })
+
+          if (inventory) {
+            const newReservedStock = Math.max(0, inventory.reservedStock - expired.quantity)
+            
+            await tx.inventory.update({
+              where: {
+                productId_warehouseId: {
+                  productId: expired.productId,
+                  warehouseId: expired.warehouseId,
+                },
+              },
+              data: {
+                reservedStock: newReservedStock,
+              },
+            })
+          }
+
+          await tx.reservation.update({
+            where: { id: expired.id },
+            data: {
+              status: 'RELEASED',
+              releasedAt: now,
+            },
+          })
+          
+          console.log(`[Cleanup] Released reservation ${expired.id} for product ${expired.productId}`)
+        }
+
+        return expiredReservations.length
+      }, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      })
+    } catch (error) {
+      console.error('[Cleanup Error] Failed to cleanup expired reservations:', error)
+      return 0
+    }
+  }
+
   static async createReservation(
     productId: string,
     warehouseId: string,
     quantity: number
   ) {
+    // Clean up expired reservations first
+    await this.cleanupAllExpiredReservations()
+
     return await prisma.$transaction(async (tx) => {
       const now = new Date()
       const expiresAt = new Date(
         now.getTime() + RESERVATION_EXPIRY_MINUTES * 60 * 1000
       )
-
-      // Clean up expired reservations first (lazy cleanup)
-      await this.cleanupExpiredReservations(tx, productId, warehouseId)
 
       // Get inventory with row-level locking using FOR UPDATE
       const inventory = await tx.inventory.findUnique({
@@ -139,19 +213,30 @@ export class ReservationService {
   ) {
     // Decrement reserved stock only if it was PENDING
     if (reservation.status === 'PENDING') {
-      await tx.inventory.update({
+      const inventory = await tx.inventory.findUnique({
         where: {
           productId_warehouseId: {
             productId: reservation.productId,
             warehouseId: reservation.warehouseId,
           },
         },
-        data: {
-          reservedStock: {
-            decrement: reservation.quantity,
-          },
-        },
       })
+
+      if (inventory) {
+        const newReservedStock = Math.max(0, inventory.reservedStock - reservation.quantity)
+        
+        await tx.inventory.update({
+          where: {
+            productId_warehouseId: {
+              productId: reservation.productId,
+              warehouseId: reservation.warehouseId,
+            },
+          },
+          data: {
+            reservedStock: newReservedStock,
+          },
+        })
+      }
     }
 
     const updated = await tx.reservation.update({
@@ -166,50 +251,10 @@ export class ReservationService {
     return updated
   }
 
-  private static async cleanupExpiredReservations(
-    tx: Prisma.TransactionClient,
-    productId: string,
-    warehouseId: string
-  ) {
-    const now = new Date()
-
-    const expiredReservations = await tx.reservation.findMany({
-      where: {
-        productId,
-        warehouseId,
-        status: 'PENDING',
-        expiresAt: {
-          lt: now,
-        },
-      },
-    })
-
-    for (const expired of expiredReservations) {
-      await tx.inventory.update({
-        where: {
-          productId_warehouseId: {
-            productId: expired.productId,
-            warehouseId: expired.warehouseId,
-          },
-        },
-        data: {
-          reservedStock: {
-            decrement: expired.quantity,
-          },
-        },
-      })
-
-      await tx.reservation.update({
-        where: { id: expired.id },
-        data: {
-          status: 'RELEASED',
-          releasedAt: now,
-        },
-      })
-    }
-  }
-
   static async getReservation(reservationId: string) {
+    // Clean up expired reservations first
+    await this.cleanupAllExpiredReservations()
+
     return await prisma.reservation.findUnique({
       where: { id: reservationId },
       include: {
@@ -218,3 +263,4 @@ export class ReservationService {
     })
   }
 }
+
