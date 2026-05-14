@@ -136,7 +136,7 @@ export default function Home() {
             {error}
           </h1>
 
-          <Button onClick={fetchProducts}>
+          <Button onClick={() => fetchProducts()}>
             Retry
           </Button>
         </div>
