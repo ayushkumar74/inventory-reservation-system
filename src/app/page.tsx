@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Card,
@@ -23,19 +23,23 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [reserving, setReserving] = useState<string | null>(null)
+  const isFetchingRef = useRef(false)
 
   useEffect(() => {
     fetchProducts()
     
-    // Add polling to catch background expiry cleanups every 30 seconds
+    // Add polling to catch background expiry cleanups every 5 seconds as requested
     const interval = setInterval(() => {
       fetchProducts(false) // Fetch silently without full loading state
-    }, 30000)
+    }, 5000)
     
     return () => clearInterval(interval)
   }, [])
 
   const fetchProducts = async (showLoading = true) => {
+    if (isFetchingRef.current) return
+    isFetchingRef.current = true
+    
     try {
       if (showLoading) setLoading(true)
 
@@ -70,6 +74,7 @@ export default function Home() {
       }
     } finally {
       if (showLoading) setLoading(false)
+      isFetchingRef.current = false
     }
   }
 

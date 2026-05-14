@@ -57,32 +57,6 @@ export class ReservationService {
         console.log(`[Cleanup] Found ${expiredReservations.length} expired reservations.`)
 
         for (const expired of expiredReservations) {
-          // Robustly decrement reserved stock
-          const inventory = await tx.inventory.findUnique({
-            where: {
-              productId_warehouseId: {
-                productId: expired.productId,
-                warehouseId: expired.warehouseId,
-              }
-            }
-          })
-
-          if (inventory) {
-            const newReservedStock = Math.max(0, inventory.reservedStock - expired.quantity)
-            
-            await tx.inventory.update({
-              where: {
-                productId_warehouseId: {
-                  productId: expired.productId,
-                  warehouseId: expired.warehouseId,
-                },
-              },
-              data: {
-                reservedStock: newReservedStock,
-              },
-            })
-          }
-
           // Mark as RELEASED
           await tx.reservation.update({
             where: { id: expired.id },
@@ -133,7 +107,20 @@ export class ReservationService {
         throw new Error('Inventory not found for this product and warehouse')
       }
 
-      const availableStock = inventory.totalStock - inventory.reservedStock
+      // Recalculate reservedStock dynamically from active reservations
+      const aggregate = await tx.reservation.aggregate({
+        _sum: {
+          quantity: true
+        },
+        where: {
+          productId,
+          warehouseId,
+          status: { in: ['PENDING', 'CONFIRMED'] }
+        }
+      })
+      const currentReservedStock = aggregate._sum.quantity || 0
+
+      const availableStock = inventory.totalStock - currentReservedStock
 
       if (availableStock < quantity) {
         throw new Error(
@@ -152,21 +139,6 @@ export class ReservationService {
         },
         include: {
           product: true,
-        },
-      })
-
-      // Increment reserved stock
-      await tx.inventory.update({
-        where: {
-          productId_warehouseId: {
-            productId,
-            warehouseId,
-          },
-        },
-        data: {
-          reservedStock: {
-            increment: quantity,
-          },
         },
       })
 
@@ -244,35 +216,6 @@ export class ReservationService {
     tx: Prisma.TransactionClient,
     reservation: { id: string; productId: string; warehouseId: string; quantity: number; status: string }
   ) {
-    // Decrement reserved stock for PENDING or CONFIRMED
-    // (Both hold reserved stock in this system)
-    if (reservation.status === 'PENDING' || reservation.status === 'CONFIRMED') {
-      const inventory = await tx.inventory.findUnique({
-        where: {
-          productId_warehouseId: {
-            productId: reservation.productId,
-            warehouseId: reservation.warehouseId,
-          },
-        },
-      })
-
-      if (inventory) {
-        const newReservedStock = Math.max(0, inventory.reservedStock - reservation.quantity)
-        
-        await tx.inventory.update({
-          where: {
-            productId_warehouseId: {
-              productId: reservation.productId,
-              warehouseId: reservation.warehouseId,
-            },
-          },
-          data: {
-            reservedStock: newReservedStock,
-          },
-        })
-      }
-    }
-
     const updated = await tx.reservation.update({
       where: { id: reservation.id },
       data: {

@@ -3,7 +3,7 @@ import { ReservationService } from './reservation.service'
 
 export class ProductService {
   static async getAllProducts() {
-    // Clean up expired reservations first to ensure accurate stock counts
+    // Clean up expired reservations first
     await ReservationService.cleanupAllExpiredReservations()
 
     const products = await prisma.product.findMany({
@@ -11,6 +11,14 @@ export class ProductService {
         inventory: {
           include: {
             warehouse: true,
+            // Include active reservations to recalculate reservedStock
+            reservations: {
+              where: {
+                status: {
+                  in: ['PENDING', 'CONFIRMED']
+                }
+              }
+            }
           },
         },
       },
@@ -22,15 +30,24 @@ export class ProductService {
     return products.map((product) => ({
       ...product,
       price: Number(product.price),
-      inventory: product.inventory.map((inv) => ({
-        ...inv,
-        availableStock: Math.max(0, inv.totalStock - inv.reservedStock),
-      })),
+      inventory: product.inventory.map((inv: any) => {
+        // Recalculate reservedStock dynamically from active reservations
+        const calculatedReservedStock = inv.reservations.reduce(
+          (sum: number, res: any) => sum + res.quantity, 
+          0
+        )
+        
+        return {
+          ...inv,
+          reservedStock: calculatedReservedStock,
+          availableStock: Math.max(0, inv.totalStock - calculatedReservedStock),
+        }
+      }),
     }))
   }
 
   static async getProductById(id: string) {
-    // Clean up expired reservations first to ensure accurate stock counts
+    // Clean up expired reservations first
     await ReservationService.cleanupAllExpiredReservations()
 
     const product = await prisma.product.findUnique({
@@ -39,6 +56,14 @@ export class ProductService {
         inventory: {
           include: {
             warehouse: true,
+            // Include active reservations to recalculate reservedStock
+            reservations: {
+              where: {
+                status: {
+                  in: ['PENDING', 'CONFIRMED']
+                }
+              }
+            }
           },
         },
       },
@@ -51,10 +76,19 @@ export class ProductService {
     return {
       ...product,
       price: Number(product.price),
-      inventory: product.inventory.map((inv) => ({
-        ...inv,
-        availableStock: Math.max(0, inv.totalStock - inv.reservedStock),
-      })),
+      inventory: product.inventory.map((inv: any) => {
+        // Recalculate reservedStock dynamically from active reservations
+        const calculatedReservedStock = inv.reservations.reduce(
+          (sum: number, res: any) => sum + res.quantity, 
+          0
+        )
+
+        return {
+          ...inv,
+          reservedStock: calculatedReservedStock,
+          availableStock: Math.max(0, inv.totalStock - calculatedReservedStock),
+        }
+      }),
     }
   }
 }
