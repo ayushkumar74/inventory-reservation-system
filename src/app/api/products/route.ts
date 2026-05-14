@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { ProductService } from '@/services/product.service'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const products = await ProductService.getAllProducts()

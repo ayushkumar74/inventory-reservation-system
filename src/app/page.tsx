@@ -26,14 +26,25 @@ export default function Home() {
 
   useEffect(() => {
     fetchProducts()
+    
+    // Add polling to catch background expiry cleanups every 30 seconds
+    const interval = setInterval(() => {
+      fetchProducts(false) // Fetch silently without full loading state
+    }, 30000)
+    
+    return () => clearInterval(interval)
   }, [])
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (showLoading = true) => {
     try {
-      setLoading(true)
+      if (showLoading) setLoading(true)
 
       const response = await fetch('/api/products', {
         cache: 'no-store',
+        headers: {
+          'Pragma': 'no-cache',
+          'Cache-Control': 'no-cache'
+        }
       })
 
       if (!response.ok) {
@@ -42,22 +53,23 @@ export default function Home() {
 
       const result = await response.json()
 
-      console.log('API RESPONSE:', result)
-
       if (result.success && Array.isArray(result.data)) {
         setProducts(result.data)
       } else {
         setProducts([])
-        setError('Invalid API response')
-        toast.error('Invalid API response')
+        if (showLoading) {
+          setError('Invalid API response')
+          toast.error('Invalid API response')
+        }
       }
     } catch (err) {
       console.error(err)
-
-      setError('Failed to load products')
-      toast.error('Failed to load products')
+      if (showLoading) {
+        setError('Failed to load products')
+        toast.error('Failed to load products')
+      }
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }
 

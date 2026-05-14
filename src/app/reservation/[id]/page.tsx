@@ -72,6 +72,7 @@ export default function ReservationPage({ params }: { params: Promise<{ id: stri
       if (data.success) {
         toast.success('Reservation confirmed successfully')
         setReservation(data.data)
+        router.refresh()
       } else {
         if (res.status === 410) {
           toast.error('Reservation has expired')
@@ -98,6 +99,8 @@ export default function ReservationPage({ params }: { params: Promise<{ id: stri
 
       if (data.success) {
         toast.success('Reservation released successfully')
+        // Force refresh before redirect to ensure homepage gets fresh data
+        router.refresh()
         // After release, redirect back to products page as requested
         setTimeout(() => {
           router.push('/')
