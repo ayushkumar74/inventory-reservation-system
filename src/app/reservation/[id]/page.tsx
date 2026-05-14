@@ -98,7 +98,10 @@ export default function ReservationPage({ params }: { params: Promise<{ id: stri
 
       if (data.success) {
         toast.success('Reservation released successfully')
-        setReservation(data.data)
+        // After release, redirect back to products page as requested
+        setTimeout(() => {
+          router.push('/')
+        }, 1500)
       } else {
         toast.error(data.error || 'Failed to release reservation')
       }
@@ -240,12 +243,23 @@ export default function ReservationPage({ params }: { params: Promise<{ id: stri
                 </>
               )}
               {reservation.status === 'CONFIRMED' && (
-                <Button
-                  onClick={() => router.push('/')}
-                  className="w-full"
-                >
-                  Back to Products
-                </Button>
+                <div className="flex gap-3 w-full">
+                  <Button
+                    onClick={() => router.push('/')}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    Back to Products
+                  </Button>
+                  <Button
+                    onClick={handleRelease}
+                    disabled={actionLoading}
+                    variant="destructive"
+                    className="flex-1"
+                  >
+                    {actionLoading ? 'Processing...' : 'Cancel Reservation'}
+                  </Button>
+                </div>
               )}
               {reservation.status === 'RELEASED' && (
                 <Button
